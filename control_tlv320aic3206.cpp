@@ -1,9 +1,9 @@
-/* 
+/*
 	control_tlv320aic3206
-	
+
 	Created: Brendan Flynn (http://www.flexvoltbiosensor.com/) for Tympan, Jan-Feb 2017
 	Purpose: Control module for Texas Instruments TLV320AIC3206 compatible with Teensy Audio Library
- 
+
 	License: MIT License.  Use at your own risk.
  */
 
@@ -16,15 +16,16 @@
 
 
 #ifndef AIC_FS
-#  define AIC_FS                                                     44100UL
+#define AIC_FS                                                     44100UL
 #endif
 
-#define AIC_BITS                                                        16
+// #define AIC_BITS                                                        16
+#define AIC_BITS                                                        32
 
 #define AIC_I2S_SLAVE                                                     1
 #if AIC_I2S_SLAVE
 // Direction of BCLK and WCLK (reg 27) is input if a slave:
-# define AIC_CLK_DIR                                                    0
+#define AIC_CLK_DIR                                                    0
 #else
 // If master, make outputs:
 # define AIC_CLK_DIR                                                   0x0C
@@ -49,20 +50,23 @@
 #define PLL_D                                                             0
 
 // Bitclock divisor.
-// BCLK = DAC_CLK/N = PLL_OUT/NDAC/N = 32*fs or 16*fs
-// PLL_OUT = fs*NDAC*MDAC*DOSR
+// BCLK = DAC_CLK/BCLK_N = PLL_OUT/NDAC/BCLK_N = 2*32*fs or 2*16*fs
+// 16bits  BCLK_N = (PLL_OUT/NDAC)/(2*16*fs)
+// fs = PLL_OUT / NDAC*MDAC*DOSR   =>   BCLK_N = NDAC*MDAC*DOSR / (NDAC*2*16) = MDAC*DOSR / 32 = 8*128 / 32 = 32
+// fs = PLL_OUT / NDAC*MDAC*DOSR   =>   BCLK_N = NDAC*MDAC*DOSR / (NDAC*2*32) = MDAC*DOSR / 64 = 8*128 / 64 = 16
+// DACfs = 44.117647kHz
 // BLCK = 32*fs = 1411200 = PLL
 #if AIC_BITS == 16
-#define BCLK_N                                                            8
+#define BCLK_N                                                            32
 #elif AIC_BITS == 32
-#define BCLK_N                                                            4
+#define BCLK_N                                                            16
 #endif
 
 // ADC/DAC FS setup.
-// ADC_MOD_CLK = CODEC_CLKIN / (NADC * MADC)
-// DAC_MOD_CLK = CODEC_CLKIN / (NDAC * MDAC)
-// ADC_FS = PLL_OUT / (NADC*MADC*AOSR)
-// DAC_FS = PLL_OUT / (NDAC*MDAC*DOSR)
+// ADC_MOD_CLK = CODEC_CLKIN / (NADC * MADC) = 5.647058MHz
+// DAC_MOD_CLK = CODEC_CLKIN / (NDAC * MDAC) = 5.647058MHz
+// ADC_FS = PLL_OUT / (NADC*MADC*AOSR) = 44.117kHz
+// DAC_FS = PLL_OUT / (NDAC*MDAC*DOSR) = 44.117kHz
 // FS = 90.3168MHz / (8*2*128) = 44100 Hz.
 // MOD = 90.3168MHz / (8*2) = 5644800 Hz
 
@@ -90,6 +94,15 @@
 #endif // end fs if block
 
 //**************************** Chip Setup **********************************//
+// General register settings
+
+// I2S bits
+#define TYMPAN_AUDIO_DATA_WORD_LENGTH_REG    0x001B // page 0, register 27
+#define TYMPAN_AUDIO_DATA_WORD_LENGTH_16 0b00000000
+#define TYMPAN_AUDIO_DATA_WORD_LENGTH_20 0b00010000
+#define TYMPAN_AUDIO_DATA_WORD_LENGTH_24 0b00100000
+#define TYMPAN_AUDIO_DATA_WORD_LENGTH_32 0b00110000
+
 
 //******************* INPUT DEFINITIONS *****************************//
 // MIC routing registers
@@ -195,7 +208,8 @@ bool AudioControlTLV320AIC3206::inputSelect(int n) {
     aic_writeAddress(TYMPAN_MICPGA_RIGHT_POSITIVE_REG, TYMPAN_MIC_ROUTING_POSITIVE_IN3 & TYMPAN_MIC_ROUTING_RESISTANCE_DEFAULT);
     aic_writeAddress(TYMPAN_MICPGA_RIGHT_NEGATIVE_REG, TYMPAN_MIC_ROUTING_NEGATIVE_CM_TO_CM1L & TYMPAN_MIC_ROUTING_RESISTANCE_DEFAULT);
     // BIAS Off
-    setMicBias(TYMPAN_MIC_BIAS_OFF);
+    //setMicBias(TYMPAN_MIC_BIAS_OFF);
+    setMicBias(TYMPAN_DEFAULT_MIC_BIAS);
 
     if (debugToSerial) Serial.println("Set Audio Input to JACK AS LINEIN, BIAS OFF");
     return true;
@@ -234,6 +248,33 @@ bool AudioControlTLV320AIC3206::setMicBias(int n) {
     return true;
   }
   Serial.print("AudioControlTLV320AIC3206: ERROR: Unable to set MIC BIAS - Value not supported: ");
+  Serial.println(n);
+  return false;
+}
+
+bool AudioControlTLV320AIC3206::setDataBitDepth(int n) {
+  if (n == TYMPAN_DATA_BIT_DEPTH_16) {
+    aic_writeAddress(TYMPAN_AUDIO_DATA_WORD_LENGTH_REG, TYMPAN_AUDIO_DATA_WORD_LENGTH_16); delay(100);
+    aic_initADC(); delay(100);
+    aic_initDAC(); delay(100);
+    return true;
+  } else if (n == TYMPAN_DATA_BIT_DEPTH_20) {
+    aic_writeAddress(TYMPAN_AUDIO_DATA_WORD_LENGTH_REG, TYMPAN_AUDIO_DATA_WORD_LENGTH_20); delay(100);
+    aic_initADC(); delay(100);
+    aic_initDAC(); delay(100);
+    return true;
+  } else if (n == TYMPAN_DATA_BIT_DEPTH_24) {
+    aic_writeAddress(TYMPAN_AUDIO_DATA_WORD_LENGTH_REG, TYMPAN_AUDIO_DATA_WORD_LENGTH_24); delay(100);
+    aic_initADC(); delay(100);
+    aic_initDAC(); delay(100);
+    return true;
+  } else if (n == TYMPAN_DATA_BIT_DEPTH_32) {
+    aic_writeAddress(TYMPAN_AUDIO_DATA_WORD_LENGTH_REG, TYMPAN_AUDIO_DATA_WORD_LENGTH_32); delay(100);
+    aic_initADC(); delay(100);
+    aic_initDAC(); delay(100);
+    return true;
+  }
+  Serial.print("ERROR: Unable to set Data Word Length - Value not supported: ");
   Serial.println(n);
   return false;
 }
@@ -368,7 +409,7 @@ void AudioControlTLV320AIC3206::aic_init() {
   if (debugToSerial) Serial.println("INFO: Initializing AIC");
 
   // PLL
-  aic_writePage(0, 4, 3); // 0x04 low PLL clock range, MCLK is PLL input, PLL_OUT is CODEC_CLKIN
+  aic_writePage(0, 4, 3); // 0x04, value = 0b00000011 low PLL clock range, MCLK is PLL input, PLL_OUT is CODEC_CLKIN
   aic_writePage(0, 5, (PLL_J != 0 ? 0x91 : 0x11));
   aic_writePage(0, 6, PLL_J);
   aic_writePage(0, 7, PLL_D >> 8);
@@ -384,20 +425,23 @@ void AudioControlTLV320AIC3206::aic_init() {
   aic_writePage(0, 18, 0x80 | NADC); // 0x12
   aic_writePage(0, 19, 0x80 | MADC); // 0x13
   aic_writePage(0, 20, AOSR);
+  //aic_writeAddress(TYMPAN_AUDIO_DATA_WORD_LENGTH_REG, TYMPAN_AUDIO_DATA_WORD_LENGTH_32); //added here WEA
+  aic_writePage(0, 27, 0x01 | AIC_CLK_DIR | (AIC_BITS == 32 ? 0x30 : 0)); // 0x1B, moved up here by WEA, May 3
   aic_writePage(0, 30, 0x80 | BCLK_N); // power up BLCK N Divider, default is 128
-
+  
   // POWER
   aic_writePage(1, 1, 8); // 0x01
   aic_writePage(1, 2, 0); // 0x02 Enable Master Analog Power Control
   aic_writePage(1, 10, 0); // common mode 0.9 for full chip, HP, LO  // from WHF/CHA
   aic_writePage(1, 71, 0x31); // 0x47 Set input power-up time to 3.1ms (for ADC)
   aic_writePage(1, 123, 1); // 0x7B Set reference to power up in 40ms when analog blocks are powered up
-  //aic_writePage(1, 124, 6); // 0x7D Charge Pump
-  aic_writePage(1, 125, 0x53); // Enable ground-centered mode, DC offset correction  // from WHF/CHA
+  //aic_writePage(1, 124, 6); // 0x7C, Charge Pump, value 0b00000110 
+  aic_writePage(1, 125, 0x53); // 0x7D, value = 0b01010011, Enable ground-centered mode, full power, DC offset correction  // from WHF/CHA
 
   // !!!!!!!!! The below writes are from WHF/CHA - probably don't need?
   // aic_writePage(1, 1, 10); // 0x01 // Charge pump
- aic_writePage(0, 27, 0x01 | AIC_CLK_DIR | (AIC_BITS == 32 ? 0x30 : 0)); // 0x1B
+  //aic_writePage(0, 27, 0x01 | AIC_CLK_DIR | (AIC_BITS == 32 ? 0x30 : 0)); // 0x1B, added BPF May 3?
+ // aic_writePage(0, 27, TYMPAN_DATA_BIT_DEPTH_32); // 0x1B
   // aic_writePage(0, 28, 0); // 0x1C
 }
 

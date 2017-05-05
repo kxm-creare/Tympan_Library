@@ -24,42 +24,56 @@
  * THE SOFTWARE.
  */
 
-#ifndef _input_i2s_f32_h_
-#define _input_i2s_f32_h_
+#ifndef output_i2s_32bit_f32_h_
+#define output_i2s_32bit_f32_h_
 
 #include "Arduino.h"
 #include "AudioStream_F32.h"
 #include "AudioStream.h"
 #include "DMAChannel.h"
 
-class AudioInputI2S_F32 : public AudioStream_F32
+
+class AudioOutputI2S_32bit_F32 : public AudioStream_F32
 {
-//GUI: inputs:0, outputs:2  //this line used for automatic generation of GUI nodes
+//GUI: inputs:2, outputs:0  //this line used for automatic generation of GUI node
 public:
-	AudioInputI2S_F32(void) : AudioStream_F32(0, NULL) { begin(); } //uses default AUDIO_SAMPLE_RATE and BLOCK_SIZE_SAMPLES from AudioStream.h
-	AudioInputI2S_F32(const AudioSettings_F32 &settings) : AudioStream_F32(0, NULL) { 
+	AudioOutputI2S_32bit_F32(void) : AudioStream_F32(2, inputQueueArray)	{ begin();} //uses default AUDIO_SAMPLE_RATE and BLOCK_SIZE_SAMPLES from AudioStream.h
+	AudioOutputI2S_32bit_F32(const AudioSettings_F32 &settings) : AudioStream_F32(2, inputQueueArray)
+	{ 
 		sample_rate_Hz = settings.sample_rate_Hz;
 		audio_block_samples = settings.audio_block_samples;
 		bit_depth = settings.bit_depth;
-		begin(); 
+		begin(); 	
 	}
 	virtual void update(void);
-	static void convert_i16_to_f32( int16_t *p_i16, float32_t *p_f32, int len) ;
 	void begin(void);
-	//friend class AudioOutputI2S_F32;
-protected:	
-	AudioInputI2S_F32(int dummy): AudioStream_F32(0, NULL) {} // to be used only inside AudioInputI2Sslave !!
+	friend class AudioInputI2S_32bit_F32;
+	//static void convert_f32_to_i16( float32_t *p_f32, int16_t *p_i16, int len) ;
+	static void scale_f32_to_i32( float32_t *p_in_f32, float32_t *p_out_f32, int len) ;
+	
+protected:
+	//AudioOutputI2S_32bit_F32(const AudioSettings &settings): AudioStream_F32(2, inputQueueArray) {} // to be used only inside AudioOutputI2Sslave !!
+	static void config_i2s(void);
+	static audio_block_f32_t *block_left_1st;
+	static audio_block_f32_t *block_right_1st;
 	static bool update_responsibility;
 	static DMAChannel dma;
 	static void isr(void);
+	float setI2SFreq(const float);
 private:
-	static audio_block_t *block_left;
-	static audio_block_t *block_right;
+	static audio_block_f32_t *block_left_2nd;
+	static audio_block_f32_t *block_right_2nd;
+	static uint16_t block_left_offset;
+	static uint16_t block_right_offset;
+	audio_block_f32_t *inputQueueArray[2];
 	static float sample_rate_Hz;
-	static int bit_depth;
 	static int audio_block_samples;
-	static uint16_t block_offset;
+	static int bit_depth;
+	volatile uint8_t enabled = 1;
+
 };
+
+
 
 
 #endif

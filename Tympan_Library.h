@@ -17,6 +17,7 @@
 #include <AudioMultiply_F32.h>
 #include "AudioSettings_F32.h"
 #include "input_i2s_f32.h"
+#include "input_i2s_32bit_f32.h"
 #include "play_queue_f32.h"
 #include "record_queue_f32.h"
 #include "synth_pinknoise_f32.h"
@@ -24,4 +25,5 @@
 #include "synth_whitenoise_f32.h"
 #include "synth_sine_f32.h"
 #include "output_i2s_f32.h"
+#include "output_i2s_32bit_f32.h"
 #include "USB_Audio_F32.h"

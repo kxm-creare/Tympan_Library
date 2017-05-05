@@ -28,7 +28,7 @@
 #include "output_i2s_f32.h"
 #include <arm_math.h>
 
-DMAMEM static uint32_t i2s_rx_buffer[AUDIO_BLOCK_SAMPLES];
+DMAMEM static uint32_t i2s_rx_buffer[AUDIO_BLOCK_SAMPLES]; //for int16, this is good for a stereo set that is AUDIO_BLOCK_SAMPLES long
 audio_block_t * AudioInputI2S_F32::block_left = NULL;
 audio_block_t * AudioInputI2S_F32::block_right = NULL;
 uint16_t AudioInputI2S_F32::block_offset = 0;
@@ -38,6 +38,7 @@ DMAChannel AudioInputI2S_F32::dma(false);
 
 float AudioInputI2S_F32::sample_rate_Hz = AUDIO_SAMPLE_RATE;
 int AudioInputI2S_F32::audio_block_samples = AUDIO_BLOCK_SAMPLES;
+int AudioInputI2S_F32::bit_depth = 16;
 
 #define I2S_BUFFER_TO_USE_BYTES (AudioOutputI2S_F32::audio_block_samples*sizeof(i2s_rx_buffer[0]))
 
@@ -51,30 +52,31 @@ void AudioInputI2S_F32::begin(void)
 	// TODO: should we set & clear the I2S_RCSR_SR bit here?
 	AudioOutputI2S_F32::sample_rate_Hz = sample_rate_Hz;
 	AudioOutputI2S_F32::audio_block_samples = audio_block_samples;
+	AudioOutputI2S_F32::bit_depth = bit_depth;
 	AudioOutputI2S_F32::config_i2s();
 
 	CORE_PIN13_CONFIG = PORT_PCR_MUX(4); // pin 13, PTC5, I2S0_RXD0
 #if defined(KINETISK)
-	dma.TCD->SADDR = &I2S0_RDR0;
-	dma.TCD->SOFF = 0;
-	dma.TCD->ATTR = DMA_TCD_ATTR_SSIZE(1) | DMA_TCD_ATTR_DSIZE(1);
-	dma.TCD->NBYTES_MLNO = 2;
-	dma.TCD->SLAST = 0;
-	dma.TCD->DADDR = i2s_rx_buffer;
-	dma.TCD->DOFF = 2;
+	dma.TCD->SADDR = &I2S0_RDR0;  //Source Address for data.  I2SO_RDR0 is Synchronis Audio Interface receive data register (kinetis.h)
+	dma.TCD->SOFF = 0;  		  //Source Address offset. zero means that it doesn't move.
+	dma.TCD->ATTR = DMA_TCD_ATTR_SSIZE(1) | DMA_TCD_ATTR_DSIZE(1);  //Transfer Attributes.  Source and Desitnation transfer sizes.  The DMA codes are from kinetis.h
+	dma.TCD->NBYTES_MLNO = 2;   //number of bytes to transfer.  
+	dma.TCD->SLAST = 0;   //last source address adjustment at end of major iteration
+	dma.TCD->DADDR = i2s_rx_buffer;  //destination address
+	dma.TCD->DOFF = 2;   //destination address offset after each destination write
 	//dma.TCD->CITER_ELINKNO = sizeof(i2s_tx_buffer) / 2;	//original
-	dma.TCD->CITER_ELINKNO = I2S_BUFFER_TO_USE_BYTES / 2;
+	dma.TCD->CITER_ELINKNO = I2S_BUFFER_TO_USE_BYTES / 2; //Major loop count
 	//dma.TCD->DLASTSGA = -sizeof(i2s_rx_buffer); //original
-	dma.TCD->DLASTSGA = -I2S_BUFFER_TO_USE_BYTES;
+	dma.TCD->DLASTSGA = -I2S_BUFFER_TO_USE_BYTES;  //last destination address adjustment when major iteration is completed
 	//dma.TCD->BITER_ELINKNO = sizeof(i2s_rx_buffer) / 2;	//original
-	dma.TCD->BITER_ELINKNO = I2S_BUFFER_TO_USE_BYTES / 2;
-	dma.TCD->CSR = DMA_TCD_CSR_INTHALF | DMA_TCD_CSR_INTMAJOR;
+	dma.TCD->BITER_ELINKNO = I2S_BUFFER_TO_USE_BYTES / 2;  //beginning major loop count
+	dma.TCD->CSR = DMA_TCD_CSR_INTHALF | DMA_TCD_CSR_INTMAJOR;  //channel service request? (DMA fields in kinetis.h...0x0004 and 0x0002, respectively)
 #endif
 	dma.triggerAtHardwareEvent(DMAMUX_SOURCE_I2S0_RX);
 	update_responsibility = update_setup();
 	dma.enable();
 
-	I2S0_RCSR |= I2S_RCSR_RE | I2S_RCSR_BCE | I2S_RCSR_FRDE | I2S_RCSR_FR;
+	I2S0_RCSR |= I2S_RCSR_RE | I2S_RCSR_BCE | I2S_RCSR_FRDE | I2S_RCSR_FR; //Synchronis Audio Interface receive control register
 	I2S0_TCSR |= I2S_TCSR_TE | I2S_TCSR_BCE; // TX clock enable, because sync'd to TX
 	dma.attachInterrupt(isr);
 	
@@ -88,49 +90,38 @@ void AudioInputI2S_F32::isr(void)
 	int16_t *dest_left, *dest_right;
 	audio_block_t *left, *right;
 
-	//digitalWriteFast(3, HIGH);
 #if defined(KINETISK)
 	daddr = (uint32_t)(dma.TCD->DADDR);
 #endif
 	dma.clearInterrupt();
 
-	//if (daddr < (uint32_t)i2s_rx_buffer + sizeof(i2s_rx_buffer) / 2) {
 	if (daddr < (uint32_t)i2s_rx_buffer + I2S_BUFFER_TO_USE_BYTES / 2) {		
-		
 		// DMA is receiving to the first half of the buffer
 		// need to remove data from the second half
-		//src = (int16_t *)&i2s_rx_buffer[AUDIO_BLOCK_SAMPLES/2];	//original
-		//end = (int16_t *)&i2s_rx_buffer[AUDIO_BLOCK_SAMPLES];	//original
-		src = (int16_t *)&i2s_rx_buffer[audio_block_samples/2];
-		end = (int16_t *)&i2s_rx_buffer[audio_block_samples];		
+		src = (int16_t *)&i2s_rx_buffer[audio_block_samples/2]; //start at midpoint
+		end = (int16_t *)&i2s_rx_buffer[audio_block_samples];	//go until the end
 		if (AudioInputI2S_F32::update_responsibility) AudioStream_F32::update_all();
 	} else {
 		// DMA is receiving to the second half of the buffer
 		// need to remove data from the first half
-		src = (int16_t *)&i2s_rx_buffer[0];
-		//end = (int16_t *)&i2s_rx_buffer[AUDIO_BLOCK_SAMPLES/2];	//original
-		end = (int16_t *)&i2s_rx_buffer[audio_block_samples/2];
+		src = (int16_t *)&i2s_rx_buffer[0];	//start at beginning
+		end = (int16_t *)&i2s_rx_buffer[audio_block_samples/2]; //got to midpoint
 	}
 	left = AudioInputI2S_F32::block_left;
 	right = AudioInputI2S_F32::block_right;
 	if (left != NULL && right != NULL) {
 		offset = AudioInputI2S_F32::block_offset;
-		//if (offset <= AUDIO_BLOCK_SAMPLES/2) {	//original
-		if (offset <= ((uint32_t) audio_block_samples/2)) {
+		if (offset <= ((uint32_t) audio_block_samples/2)) { //make sure it's a legal value
 			dest_left = &(left->data[offset]);
 			dest_right = &(right->data[offset]);
-			//AudioInputI2S_F32::block_offset = offset + AUDIO_BLOCK_SAMPLES/2;	//original
 			AudioInputI2S_F32::block_offset = offset + audio_block_samples/2;
 			do {
-				//n = *src++;
-				//*dest_left++ = (int16_t)n;
-				//*dest_right++ = (int16_t)(n >> 16);
-				*dest_left++ = *src++;
-				*dest_right++ = *src++;
+				//copy left/right interleaved data from i2s_rx_buffer into destination buffers
+				*dest_left++ = *src++;  //copy int16 data out of i2s_rx_buffer into dest_left buffer
+				*dest_right++ = *src++; //copy int16 data out of i2s_rx_buffer into dest_right buffer
 			} while (src < end);
 		}
 	}
-	//digitalWriteFast(3, LOW);
 }
 
 #define I16_TO_F32_NORM_FACTOR (3.051757812500000E-05)  //which is 1/32768 
@@ -152,7 +143,7 @@ void AudioInputI2S_F32::update(void)
 		}
 	}
 	__disable_irq();
-	//if (block_offset >= AUDIO_BLOCK_SAMPLES) {  //original
+
 	if (block_offset >= audio_block_samples) {	
 		// the DMA filled 2 blocks, so grab them and get the
 		// 2 new blocks to the DMA, as quickly as possible
@@ -188,7 +179,7 @@ void AudioInputI2S_F32::update(void)
 		}
 		AudioStream::release(out_left);
 		AudioStream::release(out_right);
-		//Serial.print(".");
+
 	} else if (new_left != NULL) {
 		// the DMA didn't fill blocks, but we allocated blocks
 		if (block_left == NULL) {

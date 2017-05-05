@@ -27,6 +27,8 @@ public:
 	bool setInputGain_dB(float n);
 	bool setMicBias(int n);
 	bool debugToSerial;
+	bool setDataBitDepth(int n);
+
 private:
   void aic_reset(void);
   void aic_init(void);
@@ -54,5 +56,10 @@ private:
 #define TYMPAN_MIC_BIAS_2_5             3
 #define TYMPAN_MIC_BIAS_VSUPPLY         4
 #define TYMPAN_DEFAULT_MIC_BIAS TYMPAN_MIC_BIAS_2_5
+
+#define TYMPAN_DATA_BIT_DEPTH_16  0
+#define TYMPAN_DATA_BIT_DEPTH_20  1
+#define TYMPAN_DATA_BIT_DEPTH_24  2
+#define TYMPAN_DATA_BIT_DEPTH_32  3
 
 #endif

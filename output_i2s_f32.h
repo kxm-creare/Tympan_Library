@@ -42,6 +42,7 @@ public:
 	{ 
 		sample_rate_Hz = settings.sample_rate_Hz;
 		audio_block_samples = settings.audio_block_samples;
+		bit_depth = settings.bit_depth;
 		begin(); 	
 	}
 	virtual void update(void);
@@ -57,6 +58,7 @@ protected:
 	static bool update_responsibility;
 	static DMAChannel dma;
 	static void isr(void);
+	float setI2SFreq(const float);
 private:
 	static audio_block_t *block_left_2nd;
 	static audio_block_t *block_right_2nd;
@@ -65,7 +67,9 @@ private:
 	audio_block_f32_t *inputQueueArray[2];
 	static float sample_rate_Hz;
 	static int audio_block_samples;
+	static int bit_depth;
 	volatile uint8_t enabled = 1;
+
 };
 
 
